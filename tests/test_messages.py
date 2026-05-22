@@ -74,3 +74,10 @@ def test_message_type_enum():
 def test_deserialize_unknown_type_raises():
     with pytest.raises(ValueError, match="Unknown message type"):
         deserialize(json.dumps({"type": "bogus.msg", "payload": {}}))
+
+
+def test_serialize_unknown_type_raises():
+    class NotAMessage:
+        pass
+    with pytest.raises(ValueError, match="Unknown message class"):
+        serialize(NotAMessage())

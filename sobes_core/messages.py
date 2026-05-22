@@ -84,6 +84,10 @@ def serialize(msg) -> str:
 
 def deserialize(raw: str):
     envelope = json.loads(raw)
+    if "type" not in envelope:
+        raise ValueError("Missing 'type' in message envelope")
+    if "payload" not in envelope:
+        raise ValueError("Missing 'payload' in message envelope")
     try:
         msg_type = MessageType(envelope["type"])
     except ValueError:
