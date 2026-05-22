@@ -5,3 +5,5 @@ __pycache__/
 .venv/
 venv/
 .env
+models/
+sobes_data/
