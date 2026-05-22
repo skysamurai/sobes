@@ -98,7 +98,8 @@ class SqliteStore:
         with self._connect() as conn:
             if tag:
                 rows = conn.execute(
-                    "SELECT * FROM scripts WHERE tags LIKE ?", (f'%"{tag}"%',)
+                    "SELECT s.* FROM scripts s, json_each(s.tags) WHERE json_each.value = ?",
+                    (tag,)
                 ).fetchall()
             else:
                 rows = conn.execute("SELECT * FROM scripts ORDER BY created_at DESC").fetchall()
