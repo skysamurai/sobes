@@ -13,6 +13,8 @@ def test_config_defaults():
     assert cfg.vosk_model_path == "models/vosk-model-small-ru-0.22"
     assert cfg.sample_rate == 16000
     assert cfg.chunk_duration_ms == 500
+    assert cfg.channels == 1
+    assert cfg.sample_width == 2
     assert "sobes" in cfg.data_dir
 
 

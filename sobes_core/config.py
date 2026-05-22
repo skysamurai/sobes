@@ -18,8 +18,8 @@ class Config:
         self.vosk_model_path = os.getenv("SOBES_VOSK_MODEL_PATH", default_model)
         self.sample_rate = int(os.getenv("SOBES_SAMPLE_RATE", "16000"))
         self.chunk_duration_ms = int(os.getenv("SOBES_CHUNK_DURATION_MS", "500"))
-        self.channels = 1
-        self.sample_width = 2
+        self.channels = int(os.getenv("SOBES_CHANNELS", "1"))
+        self.sample_width = int(os.getenv("SOBES_SAMPLE_WIDTH", "2"))
 
         self.chroma_dir = os.path.join(self.data_dir, "chroma")
         self.sqlite_path = os.path.join(self.data_dir, "sobes.db")
