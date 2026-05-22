@@ -28,7 +28,7 @@ class Config:
             "paraphrase-multilingual-MiniLM-L12-v2"
         )
         self.script_confidence_threshold = float(
-            os.getenv("SOBES_CONFIDENCE_THRESHOLD", "0.75")
+            os.getenv("SOBES_CONFIDENCE_THRESHOLD", "0.3")
         )
 
     @staticmethod
