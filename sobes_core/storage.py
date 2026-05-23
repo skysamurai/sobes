@@ -24,6 +24,7 @@ class InterviewSession:
     ended_at: str
     transcript: str
     stats: str  # JSON string
+    analysis: str = "{}"  # JSON string — vacancy+resume analysis result
 
 
 class SqliteStore:
@@ -66,6 +67,10 @@ class SqliteStore:
                     text TEXT NOT NULL
                 );
             """)
+            try:
+                conn.execute("ALTER TABLE sessions ADD COLUMN analysis TEXT DEFAULT '{}'")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     def execute(self, query: str, params=None):
         with self._connect() as conn:
@@ -114,10 +119,10 @@ class SqliteStore:
     def save_session(self, session: InterviewSession) -> int:
         with self._connect() as conn:
             cursor = conn.execute(
-                """INSERT INTO sessions (company, role, interview_type, started_at, ended_at, transcript, stats)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO sessions (company, role, interview_type, started_at, ended_at, transcript, stats, analysis)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (session.company, session.role, session.interview_type,
-                 session.started_at, session.ended_at, session.transcript, session.stats),
+                 session.started_at, session.ended_at, session.transcript, session.stats, session.analysis),
             )
             return cursor.lastrowid
 
@@ -130,6 +135,7 @@ class SqliteStore:
             id=row["id"], company=row["company"], role=row["role"],
             interview_type=row["interview_type"], started_at=row["started_at"],
             ended_at=row["ended_at"], transcript=row["transcript"], stats=row["stats"],
+            analysis=row["analysis"] if "analysis" in row.keys() else "{}",
         )
 
     def list_sessions(self, company: str | None = None) -> list[InterviewSession]:
@@ -145,6 +151,7 @@ class SqliteStore:
                 id=r["id"], company=r["company"], role=r["role"],
                 interview_type=r["interview_type"], started_at=r["started_at"],
                 ended_at=r["ended_at"], transcript=r["transcript"], stats=r["stats"],
+                analysis=r["analysis"] if "analysis" in r.keys() else "{}",
             )
             for r in rows
         ]

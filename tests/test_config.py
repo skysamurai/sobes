@@ -10,7 +10,8 @@ def test_config_defaults():
     assert cfg.zmq_asr_port == 5557
     assert cfg.zmq_prompt_port == 5558
     assert cfg.zmq_ui_port == 5559
-    assert cfg.vosk_model_path == "models/vosk-model-small-ru-0.22"
+    assert "models" in cfg.vosk_model_path
+    assert "vosk-model-small-ru-0.22" in cfg.vosk_model_path
     assert cfg.sample_rate == 16000
     assert cfg.chunk_duration_ms == 500
     assert cfg.channels == 1

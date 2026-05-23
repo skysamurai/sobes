@@ -1,6 +1,13 @@
 # sobes_core/config.py
 import os
+import sys
 import platform
+
+
+def _exe_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(sys.argv[0]))
 
 
 class Config:
@@ -14,12 +21,13 @@ class Config:
         self.zmq_prompt_port = int(os.getenv("SOBES_ZMQ_PROMPT_PORT", "5558"))
         self.zmq_ui_port = int(os.getenv("SOBES_ZMQ_UI_PORT", "5559"))
 
-        default_model = "models/vosk-model-small-ru-0.22"
+        default_model = os.path.join(_exe_dir(), "models", "vosk-model-small-ru-0.22")
         self.vosk_model_path = os.getenv("SOBES_VOSK_MODEL_PATH", default_model)
         self.sample_rate = int(os.getenv("SOBES_SAMPLE_RATE", "16000"))
         self.chunk_duration_ms = int(os.getenv("SOBES_CHUNK_DURATION_MS", "500"))
         self.channels = int(os.getenv("SOBES_CHANNELS", "1"))
         self.sample_width = int(os.getenv("SOBES_SAMPLE_WIDTH", "2"))
+        self.audio_device_index = int(os.getenv("SOBES_AUDIO_DEVICE", "-1"))  # -1 = default
 
         self.chroma_dir = os.path.join(self.data_dir, "chroma")
         self.sqlite_path = os.path.join(self.data_dir, "sobes.db")
@@ -30,6 +38,7 @@ class Config:
         self.script_confidence_threshold = float(
             os.getenv("SOBES_CONFIDENCE_THRESHOLD", "0.3")
         )
+        self.llm_provider = os.getenv("SOBES_LLM_PROVIDER", "template")
 
     @staticmethod
     def _default_data_dir():
