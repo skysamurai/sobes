@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QComboBox, QPushButton, QTextEdit, QListWidget,
     QListWidgetItem, QMessageBox, QGroupBox, QFormLayout, QSplitter,
-    QStatusBar, QFileDialog, QScrollArea,
+    QStatusBar, QFileDialog, QScrollArea, QDialog,
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QPalette, QColor
@@ -508,19 +508,68 @@ class PrepareTab(QWidget):
             + (f"\nАнализ: выполнен" if analysis else "")
         )
 
+    def load_from_saved(self, data: dict):
+        """Populate form fields from saved session data."""
+        self.company_input.setText(data.get("company", ""))
+        self.role_input.setText(data.get("role", ""))
+        itype = data.get("interview_type", "tech")
+        idx = self.type_combo.findText(itype)
+        if idx >= 0:
+            self.type_combo.setCurrentIndex(idx)
+        self.vacancy_url.setText(data.get("vacancy_url", ""))
+        self.vacancy_text.setPlainText(data.get("vacancy_text", ""))
+        self.gathered_info.setPlainText(data.get("gathered_info", ""))
+        self.resume_url.setText(data.get("resume_url", ""))
+        self.resume_text.setPlainText(data.get("resume_text", ""))
+        sid = data.get("id", "")
+        if sid:
+            self._profile = {"id": sid, "analysis": data.get("analysis")}
+
     def get_profile(self):
         return self._profile
+
+
+class AnalysisDialog(QDialog):
+    """Editable dialog for a single analysis section."""
+    def __init__(self, title: str, text: str, parent=None, on_save=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(600, 450)
+        self._on_save = on_save
+
+        layout = QVBoxLayout(self)
+        self.editor = QTextEdit()
+        self.editor.setPlainText(text)
+        self.editor.setReadOnly(False)
+        layout.addWidget(self.editor)
+
+        btn_layout = QHBoxLayout()
+        save_btn = QPushButton("Сохранить")
+        save_btn.setObjectName("startBtn")
+        save_btn.clicked.connect(self._save)
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(self.close)
+        btn_layout.addStretch()
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+    def _save(self):
+        if self._on_save:
+            self._on_save(self.editor.toPlainText())
+        self.accept()
 
 
 class LiveTab(QWidget):
     status_signal = Signal(str)
 
     def __init__(self, runner: SessionRunner, store: SqliteStore,
-                 prep_service=None):
+                 prep_service=None, on_analysis_changed=None):
         super().__init__()
         self.runner = runner
         self.store = store
         self.prep = prep_service
+        self._on_analysis_changed = on_analysis_changed
         self._overlay_timer = QTimer()
 
         self.status_signal.connect(self._update_status_label)
@@ -576,33 +625,29 @@ class LiveTab(QWidget):
         transcript_group.setLayout(tl)
         layout.addWidget(transcript_group)
 
-        # Analysis display
+        # Analysis buttons
         self.analysis_group = QGroupBox("Анализ собеседования")
         al = QVBoxLayout()
 
-        al.addWidget(QLabel("Самопрезентация:"))
-        self.self_presentation_text = QTextEdit()
-        self.self_presentation_text.setReadOnly(True)
-        self.self_presentation_text.setMaximumHeight(120)
-        al.addWidget(self.self_presentation_text)
+        self.btn_self_presentation = QPushButton("Самопрезентация")
+        self.btn_self_presentation.clicked.connect(
+            lambda: self._open_analysis_dialog("Самопрезентация", "self_presentation"))
+        al.addWidget(self.btn_self_presentation)
 
-        al.addWidget(QLabel("Ответы на предполагаемые вопросы:"))
-        self.anticipated_questions_text = QTextEdit()
-        self.anticipated_questions_text.setReadOnly(True)
-        self.anticipated_questions_text.setMaximumHeight(150)
-        al.addWidget(self.anticipated_questions_text)
+        self.btn_questions = QPushButton("Ответы на предполагаемые вопросы")
+        self.btn_questions.clicked.connect(
+            lambda: self._open_analysis_dialog("Ответы на вопросы", "anticipated_questions"))
+        al.addWidget(self.btn_questions)
 
-        al.addWidget(QLabel("Рекомендации по зарплате:"))
-        self.salary_recommendation_text = QTextEdit()
-        self.salary_recommendation_text.setReadOnly(True)
-        self.salary_recommendation_text.setMaximumHeight(80)
-        al.addWidget(self.salary_recommendation_text)
+        self.btn_salary = QPushButton("Рекомендации по зарплате")
+        self.btn_salary.clicked.connect(
+            lambda: self._open_analysis_dialog("Рекомендации по зарплате", "salary_recommendation"))
+        al.addWidget(self.btn_salary)
 
-        al.addWidget(QLabel("Что спрашивать у работодателя:"))
-        self.employer_questions_text = QTextEdit()
-        self.employer_questions_text.setReadOnly(True)
-        self.employer_questions_text.setMaximumHeight(100)
-        al.addWidget(self.employer_questions_text)
+        self.btn_employer = QPushButton("Что спрашивать у работодателя")
+        self.btn_employer.clicked.connect(
+            lambda: self._open_analysis_dialog("Вопросы работодателю", "employer_questions"))
+        al.addWidget(self.btn_employer)
 
         self.analysis_group.setLayout(al)
         self.analysis_group.setVisible(False)
@@ -657,42 +702,45 @@ class LiveTab(QWidget):
         )
         self.transcript_view.setText(text)
 
-    def display_analysis(self, analysis: dict):
+    def display_analysis(self, analysis: dict, session_id: str = None):
         if not analysis:
             self.analysis_group.setVisible(False)
             return
 
+        self._analysis = analysis
+        self._session_id = session_id
         self.analysis_group.setVisible(True)
 
-        # Self-presentation
-        self.self_presentation_text.setText(
-            analysis.get("self_presentation", "Нет данных")
-        )
-
-        # Anticipated questions
-        questions = analysis.get("anticipated_questions", [])
-        if questions:
-            q_text = ""
-            for i, qa in enumerate(questions, 1):
-                q_text += f"{i}. Вопрос: {qa.get('question', '')}\n"
-                q_text += f"   Ответ: {qa.get('suggested_answer', '')}\n\n"
-            self.anticipated_questions_text.setText(q_text.strip())
+    def _open_analysis_dialog(self, title: str, key: str):
+        analysis = getattr(self, '_analysis', {})
+        if key == "anticipated_questions":
+            questions = analysis.get(key, [])
+            if questions:
+                text = ""
+                for i, qa in enumerate(questions, 1):
+                    text += f"{i}. Вопрос: {qa.get('question', '')}\n"
+                    text += f"   Ответ: {qa.get('suggested_answer', '')}\n\n"
+            else:
+                text = "Нет данных"
+        elif key == "employer_questions":
+            eq_list = analysis.get(key, [])
+            text = "\n".join(f"• {q}" for q in eq_list) if eq_list else "Нет данных"
         else:
-            self.anticipated_questions_text.setText("Нет данных")
+            text = analysis.get(key, "Нет данных")
 
-        # Salary recommendation
-        self.salary_recommendation_text.setText(
-            analysis.get("salary_recommendation", "Нет данных")
-        )
+        def on_save(new_text):
+            if key in ("anticipated_questions", "employer_questions"):
+                return  # structured data, skip inline edit for simplicity
+            analysis[key] = new_text
+            if self.prep:
+                sid = getattr(self, '_session_id', None)
+                if sid:
+                    self.prep.save_analysis(sid, analysis)
+            if self._on_analysis_changed:
+                self._on_analysis_changed()
 
-        # Employer questions
-        eq_list = analysis.get("employer_questions", [])
-        if eq_list:
-            self.employer_questions_text.setText(
-                "\n".join(f"• {q}" for q in eq_list)
-            )
-        else:
-            self.employer_questions_text.setText("Нет данных")
+        dialog = AnalysisDialog(title, text, self, on_save=on_save)
+        dialog.exec()
 
 
 class ReportsTab(QWidget):
@@ -767,7 +815,8 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.prepare_tab = PrepareTab(self.prep, self.store,
                                         on_session_created=self._on_session_created)
-        self.live_tab = LiveTab(self.runner, self.store, prep_service=self.prep)
+        self.live_tab = LiveTab(self.runner, self.store, prep_service=self.prep,
+                                on_analysis_changed=self._on_analysis_changed)
         self.reports_tab = ReportsTab(self.store)
 
         self.tabs.addTab(self.prepare_tab, "📋 Подготовка")
@@ -783,36 +832,112 @@ class MainWindow(QMainWindow):
         # Wire prepare → live: when user switches to Live tab, auto-load session
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
+        # Restore last session on startup
+        saved = self._load_last_session()
+        if saved:
+            self.prepare_tab.load_from_saved(saved)
+            self.status_bar.showMessage(f"Загружена сессия: {saved['id']}")
+            # Recreate session in prep service so get_analysis works
+            sid = saved["id"]
+            self.prep.create_session_profile(
+                saved.get("company", ""), saved.get("role", ""),
+                saved.get("interview_type", "tech"),
+                vacancy_url=saved.get("vacancy_url", ""),
+                vacancy_text=saved.get("vacancy_text", ""),
+                gathered_info=saved.get("gathered_info", ""),
+                resume_url=saved.get("resume_url", ""),
+                resume_text=saved.get("resume_text", ""),
+            )
+            # Override generated ID with saved ID
+            for key in list(self.prep._sessions.keys()):
+                if key != sid:
+                    profile = self.prep._sessions.pop(key)
+                    profile["id"] = sid
+                    self.prep._sessions[sid] = profile
+                    break
+            analysis = saved.get("analysis")
+            if analysis:
+                self.prep._sessions[sid]["analysis"] = analysis
+                self.live_tab.display_analysis(analysis, session_id=sid)
+
     def _on_session_created(self, profile):
         """Called from PrepareTab after session creation — auto-switch to Live tab."""
         self.tabs.setCurrentIndex(1)
         self.runner.load_session(profile["id"])
         self.status_bar.showMessage(f"Session loaded: {profile['id']}")
-        # Load and display analysis
-        analysis = self.prep.get_analysis(profile["id"])
+        sid = profile["id"]
+        analysis = self.prep.get_analysis(sid)
         if analysis:
-            self.live_tab.display_analysis(analysis)
+            self.live_tab.display_analysis(analysis, session_id=sid)
         else:
-            analysis = self.prep.run_combined_analysis(profile["id"])
+            analysis = self.prep.run_combined_analysis(sid)
             if analysis:
-                self.live_tab.display_analysis(analysis)
+                self.live_tab.display_analysis(analysis, session_id=sid)
+        self._save_last_session(profile)
 
     def _on_tab_changed(self, index):
         if index == 1:  # Live tab
             profile = self.prepare_tab.get_profile()
             if profile:
-                self.runner.load_session(profile["id"])
-                self.status_bar.showMessage(f"Session loaded: {profile['id']}")
-
-                # Load and display analysis
-                analysis = self.prep.get_analysis(profile["id"])
+                sid = profile["id"]
+                self.runner.load_session(sid)
+                self.status_bar.showMessage(f"Session loaded: {sid}")
+                analysis = self.prep.get_analysis(sid)
                 if analysis:
-                    self.live_tab.display_analysis(analysis)
+                    self.live_tab.display_analysis(analysis, session_id=sid)
                 else:
-                    # Try to run analysis if not yet done
-                    analysis = self.prep.run_combined_analysis(profile["id"])
+                    analysis = self.prep.run_combined_analysis(sid)
                     if analysis:
-                        self.live_tab.display_analysis(analysis)
+                        self.live_tab.display_analysis(analysis, session_id=sid)
+
+    def _on_analysis_changed(self):
+        """Called when user saves analysis text in a dialog — persist to disk."""
+        profile = self.prepare_tab.get_profile()
+        if profile:
+            sid = profile.get("id", "")
+            if sid:
+                analysis = self.prep.get_analysis(sid)
+                if analysis:
+                    profile["analysis"] = analysis
+            self._save_last_session(profile)
+
+    def _last_session_path(self):
+        return os.path.join(self.cfg.data_dir, "last_session.json")
+
+    def _save_last_session(self, profile):
+        """Save session profile to disk for reload on next startup."""
+        path = self._last_session_path()
+        try:
+            data = {
+                "id": profile.get("id", ""),
+                "company": profile.get("company", ""),
+                "role": profile.get("role", ""),
+                "interview_type": profile.get("interview_type", "tech"),
+                "vacancy_url": profile.get("vacancy_url", ""),
+                "vacancy_text": profile.get("vacancy_text", ""),
+                "gathered_info": profile.get("gathered_info", ""),
+                "resume_url": profile.get("resume_url", ""),
+                "resume_text": profile.get("resume_text", ""),
+                "analysis": profile.get("analysis"),
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save session: {e}")
+
+    def _load_last_session(self):
+        """Restore last session on startup. Returns profile dict or None."""
+        path = self._last_session_path()
+        try:
+            if not os.path.exists(path):
+                return None
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not data.get("id"):
+                return None
+            return data
+        except Exception:
+            return None
 
 
 def main():

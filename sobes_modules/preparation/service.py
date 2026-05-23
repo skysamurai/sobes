@@ -63,6 +63,13 @@ class PreparationService:
         profile = self._sessions.get(session_id, {})
         return profile.get("analysis")
 
+    def save_analysis(self, session_id: str, analysis: dict):
+        """Persist analysis changes in memory. Returns True if session found."""
+        if session_id in self._sessions:
+            self._sessions[session_id]["analysis"] = analysis
+            return True
+        return False
+
     def add_script(self, session_id: str, title: str, content: str, tags: list[str]) -> int:
         script = Script(id=None, title=title, content=content, tags=tags, company=None, role=None)
         script_id = self.store.save_script(script)

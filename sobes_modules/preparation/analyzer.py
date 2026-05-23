@@ -282,18 +282,24 @@ class TemplateAnalysisBackend:
 
     def _extract_name(self, resume_text: str, gathered_info: str = "") -> str:
         """Extract candidate name from resume — only checks first 5 lines."""
-        # Only look at beginning of resume where name would naturally appear
         resume_head = "\n".join(resume_text.split("\n")[:5])
         combined = resume_head + "\n" + "\n".join(gathered_info.split("\n")[:3])
-        name_patterns = [
-            r"^([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)?)$",
-            r"(?:Имя|ФИО|Ф\.И\.О\.?|Name|Full\s*Name)[:\s]+([А-ЯЁA-Z][а-яёa-z]+\s+[А-ЯЁA-Z][а-яёa-z]+(?:\s+[А-ЯЁA-Z][а-яёa-z]+)?)",
-        ]
-        for pat in name_patterns:
-            for m in re.finditer(pat, combined, re.MULTILINE):
-                name = m.group(1).strip()
-                if 6 < len(name) < 60 and self._looks_like_name(name):
-                    return name
+        # Find 2-3 consecutive capitalized Russian words (name anywhere in text)
+        for m in re.finditer(
+            r"([А-ЯЁ][а-яё]{1,20})\s+([А-ЯЁ][а-яё]{1,20})(?:\s+([А-ЯЁ][а-яё]{1,20}))?",
+            combined
+        ):
+            name = m.group(0).strip()
+            if 8 < len(name) < 60 and self._looks_like_name(name):
+                return name
+        # Fallback: labeled name (Имя: / ФИО: / Name:)
+        for m in re.finditer(
+            r"(?:Имя|ФИО|Ф\.И\.О\.?|Name|Full\s*Name)\s*[:\s]+\s*([А-ЯЁA-Z][а-яёa-z]+\s+[А-ЯЁA-Z][а-яёa-z]+(?:\s+[А-ЯЁA-Z][а-яёa-z]+)?)",
+            combined, re.IGNORECASE
+        ):
+            name = m.group(1).strip()
+            if 6 < len(name) < 60 and self._looks_like_name(name):
+                return name
         return ""
 
     def _parse_gathered_analysis(self, gathered_info: str) -> dict:
@@ -374,16 +380,27 @@ class TemplateAnalysisBackend:
                                   education: str, achievements: list[str],
                                   resume_text: str, gathered_info: str,
                                   name: str, gi_analysis: dict) -> str:
-        lines = []
+        gi_pres = gi_analysis.get("self_presentation", "")
+        gi_raw = gi_analysis.get("_raw", "")
 
-        # -- Greeting with name --
+        # If user provided their own self-presentation text, use it directly
+        if gi_pres:
+            if name:
+                return f"Здравствуйте! Меня зовут **{name}**.\n\n{gi_pres}"
+            return gi_pres
+        if gi_raw:
+            if name:
+                return f"Здравствуйте! Меня зовут **{name}**.\n\n{gi_raw}"
+            return gi_raw
+
+        # -- No gathered_info: build template-based presentation --
+        lines = []
         lines.append("## Самопрезентация\n")
         if name:
             lines.append(f"Здравствуйте! Меня зовут **{name}**.")
         else:
             lines.append("Здравствуйте! Меня зовут [Имя].")
 
-        # -- Experience-led intro --
         if years >= 5:
             lines.append(f"\nЯ разработчик с **{years} годами** коммерческого опыта.")
             if role:
@@ -397,56 +414,39 @@ class TemplateAnalysisBackend:
         else:
             lines.append(f"\nЯ специализируюсь на разработке и заинтересован(а) в позиции **{role}**." + (f" в **{company}**." if company else "."))
 
-        # ---- CORE CONTENT: prefer gathered_info analysis, fall back to template ----
-        gi_pres = gi_analysis.get("self_presentation", "")
-        gi_raw = gi_analysis.get("_raw", "")
-        has_gi_content = bool(gi_pres or gi_raw)
+        lines.append("")
+        lines.append("### Ключевые компетенции")
+        if matching:
+            matched_list = sorted(matching)
+            lines.append(f"\n**Стек, совпадающий с требованиями вакансии:** {', '.join(matched_list)}.")
+        if gaps:
+            lines.append(f"**Технологии для освоения:** {', '.join(gaps)} — готов(а) быстро изучить в процессе работы.")
+        if all_tech and not matching:
+            lines.append(f"**Технический стек:** {', '.join(sorted(all_tech))}.")
 
-        if has_gi_content:
-            # Use user's own analysis as the primary content
-            lines.append("")
-            content = gi_pres if gi_pres else gi_raw
-            lines.append(content)
+        lines.append("")
+        lines.append("### Опыт и проекты")
+        if achievements:
+            lines.append("\n**Ключевые результаты на предыдущих местах:**")
+            for i, a in enumerate(achievements, 1):
+                lines.append(f"{i}. {a}")
+        elif years:
+            lines.append(f"\nЗа {years} лет коммерческой разработки участвовал(а) в проектах разного масштаба — от стартапов до enterprise-решений. Решал(а) задачи полного цикла: от проектирования до эксплуатации.")
         else:
-            # -- Template-based content --
-            # Skills block
+            lines.append("\nУчаствовал(а) в проектах полного цикла разработки, решал(а) как продуктовые, так и инфраструктурные задачи.")
+
+        if education:
             lines.append("")
-            lines.append("### Ключевые компетенции")
-            if matching:
-                matched_list = sorted(matching)
-                lines.append(f"\n**Стек, совпадающий с требованиями вакансии:** {', '.join(matched_list)}.")
-            if gaps:
-                lines.append(f"**Технологии для освоения:** {', '.join(gaps)} — готов(а) быстро изучить в процессе работы.")
-            if all_tech and not matching:
-                lines.append(f"**Технический стек:** {', '.join(sorted(all_tech))}.")
+            lines.append("### Образование")
+            lines.append(f"\n{education}")
 
-            # Experience narrative
-            lines.append("")
-            lines.append("### Опыт и проекты")
-            if achievements:
-                lines.append("\n**Ключевые результаты на предыдущих местах:**")
-                for i, a in enumerate(achievements, 1):
-                    lines.append(f"{i}. {a}")
-            elif years:
-                lines.append(f"\nЗа {years} лет коммерческой разработки участвовал(а) в проектах разного масштаба — от стартапов до enterprise-решений. Решал(а) задачи полного цикла: от проектирования до эксплуатации.")
-            else:
-                lines.append("\nУчаствовал(а) в проектах полного цикла разработки, решал(а) как продуктовые, так и инфраструктурные задачи.")
+        lines.append("")
+        lines.append("### Почему эта вакансия")
+        if company:
+            lines.append(f"\nМеня привлекает **{company}** — компания с сильной инженерной культурой и масштабными задачами.")
+        if role:
+            lines.append(f"Позиция **{role}** соответствует моему опыту и карьерным целям — хочу развиваться в этой области и приносить measurable impact.")
 
-            # Education
-            if education:
-                lines.append("")
-                lines.append("### Образование")
-                lines.append(f"\n{education}")
-
-            # Motivation
-            lines.append("")
-            lines.append("### Почему эта вакансия")
-            if company:
-                lines.append(f"\nМеня привлекает **{company}** — компания с сильной инженерной культурой и масштабными задачами.")
-            if role:
-                lines.append(f"Позиция **{role}** соответствует моему опыту и карьерным целям — хочу развиваться в этой области и приносить measurable impact.")
-
-        # ---- Closing ----
         lines.append("")
         lines.append("Готов(а) подробно обсудить проекты и ответить на вопросы. Буду рад(а) стать частью команды!")
 
