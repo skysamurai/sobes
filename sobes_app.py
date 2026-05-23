@@ -743,7 +743,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sobes — Interview Assistant")
-        self.setMinimumSize(700, 550)
+        self.setMinimumSize(720, 750)
         self.setStyleSheet(DARK_STYLE)
 
         self.cfg = Config()
