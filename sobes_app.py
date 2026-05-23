@@ -523,7 +523,7 @@ class PrepareTab(QWidget):
         self.resume_text.setPlainText(data.get("resume_text", ""))
         sid = data.get("id", "")
         if sid:
-            self._profile = {"id": sid, "analysis": data.get("analysis")}
+            self._profile = dict(data)  # keep full data for _save_last_session
 
     def get_profile(self):
         return self._profile
@@ -971,13 +971,29 @@ class MainWindow(QMainWindow):
     def _on_analysis_changed(self):
         """Called when user saves analysis text in a dialog — persist to disk."""
         profile = self.prepare_tab.get_profile()
-        if profile:
-            sid = profile.get("id", "")
-            if sid:
-                analysis = self.prep.get_analysis(sid)
-                if analysis:
-                    profile["analysis"] = analysis
-            self._save_last_session(profile)
+        if not profile:
+            return
+        sid = profile.get("id", "")
+        if not sid:
+            return
+        # Get latest analysis from prep service
+        analysis = self.prep.get_analysis(sid)
+        if not analysis:
+            analysis = self.live_tab._analysis if hasattr(self.live_tab, '_analysis') else {}
+        # Reconstruct full profile for saving
+        full_profile = {
+            "id": sid,
+            "company": profile.get("company", ""),
+            "role": profile.get("role", ""),
+            "interview_type": profile.get("interview_type", "tech"),
+            "vacancy_url": profile.get("vacancy_url", ""),
+            "vacancy_text": profile.get("vacancy_text", ""),
+            "gathered_info": profile.get("gathered_info", ""),
+            "resume_url": profile.get("resume_url", ""),
+            "resume_text": profile.get("resume_text", ""),
+            "analysis": analysis,
+        }
+        self._save_last_session(full_profile)
 
     def _last_session_path(self):
         return os.path.join(self.cfg.data_dir, "last_session.json")
