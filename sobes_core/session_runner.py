@@ -40,9 +40,13 @@ class SessionRunner:
         self._interview_type = ""
 
         self._status_callback = None
+        self._hint_callback = None
 
     def set_status_callback(self, cb):
         self._status_callback = cb
+
+    def set_hint_callback(self, cb):
+        self._hint_callback = cb
 
     def _emit_status(self, msg: str):
         if self._status_callback:
@@ -84,10 +88,12 @@ class SessionRunner:
 
         self.asr.set_callback(on_asr_result)
 
-        # Wire Prompt → Overlay
+        # Wire Prompt → Overlay + LiveTab
         def on_hint(hint: PromptHint):
             self._hints_used.append(hint.source_script)
             self.overlay.display_hint(hint)
+            if self._hint_callback:
+                self._hint_callback(hint)
             self._emit_status(f"Hint: {hint.source_script} ({hint.confidence:.0%})")
 
         self.prompt.set_callback(on_hint)
@@ -109,9 +115,6 @@ class SessionRunner:
         self._emit_status("Starting audio capture...")
         self.capturer.start()
 
-        self.overlay.show()
-        self.overlay.start_qt_ui()
-
         self._emit_status("Session running")
 
     def stop(self):
@@ -119,7 +122,6 @@ class SessionRunner:
             return
         self._running = False
         self.capturer.stop()
-        self.overlay.hide()
         self._emit_status("Session stopped")
         self._save_report()
 

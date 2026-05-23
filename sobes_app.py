@@ -624,6 +624,46 @@ class LiveTab(QWidget):
         tl.addWidget(self.transcript_view)
         transcript_group.setLayout(tl)
         layout.addWidget(transcript_group)
+        self.transcript_group = transcript_group
+
+        # ---- Session view (visible when session is running) ----
+        # Self-presentation during session
+        self.session_pres_group = QGroupBox("Самопрезентация")
+        spl = QVBoxLayout()
+        self.session_pres_view = QTextEdit()
+        self.session_pres_view.setReadOnly(True)
+        self.session_pres_view.setMinimumHeight(100)
+        self.session_pres_view.setMaximumHeight(200)
+        spl.addWidget(self.session_pres_view)
+        self.session_pres_group.setLayout(spl)
+        self.session_pres_group.setVisible(False)
+        layout.addWidget(self.session_pres_group)
+
+        # Live transcript during session
+        self.session_transcript_group = QGroupBox("Транскрипт")
+        stl = QVBoxLayout()
+        self.session_transcript_view = QTextEdit()
+        self.session_transcript_view.setReadOnly(True)
+        self.session_transcript_view.setMinimumHeight(150)
+        stl.addWidget(self.session_transcript_view)
+        self.session_transcript_group.setLayout(stl)
+        self.session_transcript_group.setVisible(False)
+        layout.addWidget(self.session_transcript_group)
+
+        # Hint area during session
+        self.session_hint_group = QGroupBox("Подсказка")
+        shl = QVBoxLayout()
+        self.session_hint_view = QTextEdit()
+        self.session_hint_view.setReadOnly(True)
+        self.session_hint_view.setMaximumHeight(120)
+        self.session_hint_view.setStyleSheet(
+            "background: #1e1e2e; color: #a6e3a1; border: 1px solid #a6e3a1;"
+            "border-radius: 4px; padding: 8px; font-size: 13px;"
+        )
+        shl.addWidget(self.session_hint_view)
+        self.session_hint_group.setLayout(shl)
+        self.session_hint_group.setVisible(False)
+        layout.addWidget(self.session_hint_group)
 
         # Analysis buttons
         self.analysis_group = QGroupBox("Анализ собеседования")
@@ -674,11 +714,24 @@ class LiveTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось инициализировать: {e}")
             return
+        # Show self-presentation during session
+        analysis = getattr(self, '_analysis', None)
+        if analysis and analysis.get("self_presentation"):
+            self.session_pres_view.setText(analysis["self_presentation"])
+            self.session_pres_group.setVisible(True)
+
+        self.runner.set_hint_callback(self._on_hint)
         self.runner.start()
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self._overlay_timer.timeout.connect(self._update_transcript)
-        self._overlay_timer.start(1000)
+
+        # Switch to session view
+        self.transcript_group.setVisible(False)
+        self.analysis_group.setVisible(False)
+        self.session_transcript_group.setVisible(True)
+
+        self._overlay_timer.timeout.connect(self._update_session_transcript)
+        self._overlay_timer.start(800)
 
     def _stop(self):
         self.runner.stop()
@@ -687,6 +740,13 @@ class LiveTab(QWidget):
         self.stop_btn.setEnabled(False)
         self.status_label.setText("Остановлено")
         self.status_label.setStyleSheet("color: #f38ba8; font-size: 14px;")
+
+        # Restore normal view
+        self.session_pres_group.setVisible(False)
+        self.session_transcript_group.setVisible(False)
+        self.session_hint_group.setVisible(False)
+        self.transcript_group.setVisible(True)
+        self.analysis_group.setVisible(True)
 
     def _on_status(self, msg: str):
         self.status_signal.emit(msg)
@@ -701,6 +761,24 @@ class LiveTab(QWidget):
             for e in lines
         )
         self.transcript_view.setText(text)
+
+    def _update_session_transcript(self):
+        """Update the large session transcript view with all lines."""
+        lines = self.runner._transcript[-50:]
+        text = "\n".join(
+            f"[{e['timestamp']}] {e['speaker']}: {e['text']}"
+            for e in lines
+        )
+        self.session_transcript_view.setText(text)
+        # Also update the small preview
+        self._update_transcript()
+
+    def _on_hint(self, hint):
+        """Show a hint in the session view when prompt engine detects a question."""
+        self.session_hint_view.setText(hint.hint)
+        self.session_hint_group.setVisible(True)
+        # Auto-hide hint after 30 seconds
+        QTimer.singleShot(30000, lambda: self.session_hint_group.setVisible(False))
 
     def display_analysis(self, analysis: dict, session_id: str = None):
         if not analysis:
