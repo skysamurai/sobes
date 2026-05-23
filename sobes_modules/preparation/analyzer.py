@@ -257,23 +257,42 @@ class TemplateAnalysisBackend:
                 return m.group(0).strip()[:80]
         return ""
 
+    # Words that look like capitalized Russian words but are NOT person names
+    _NOT_NAME_WORDS = {
+        "рынок", "область", "регион", "город", "район", "край", "республика",
+        "компания", "предприятие", "группа", "завод", "фабрика", "отдел",
+        "департамент", "управление", "министерство", "сегмент", "корпорация",
+        "организация", "учреждение", "холдинг", "филиал", "подразделение",
+        "производство", "комбинат", "станция", "генеральный", "главный",
+        "ведущий", "старший", "младший", "руководитель", "директор",
+    }
+
+    def _looks_like_name(self, text: str) -> bool:
+        """Check if text looks like a person's name, not a place/company."""
+        words = text.split()
+        if len(words) < 2 or len(words) > 3:
+            return False
+        for w in words:
+            if w.lower() in self._NOT_NAME_WORDS:
+                return False
+            # Name must start with capital Russian letter and be reasonable length
+            if not re.match(r"^[А-ЯЁ][а-яё]{1,20}$", w):
+                return False
+        return True
+
     def _extract_name(self, resume_text: str, gathered_info: str = "") -> str:
-        """Extract candidate name from resume or gathered_info."""
-        combined = resume_text + "\n" + gathered_info
-        # Try common Russian name patterns (Фамилия Имя Отчество or Имя Фамилия)
+        """Extract candidate name from resume — only checks first 5 lines."""
+        # Only look at beginning of resume where name would naturally appear
+        resume_head = "\n".join(resume_text.split("\n")[:5])
+        combined = resume_head + "\n" + "\n".join(gathered_info.split("\n")[:3])
         name_patterns = [
-            # First line of resume often contains name
-            r"^([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)?)",
-            # Labeled: "Имя: ..." or "ФИО: ..."
-            r"(?:Имя|ФИО|Ф\.И\.О\.?|Name)[:\s]+\s*([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)?)",
-            # Labeled in English
-            r"(?:Name|Full\s+Name)[:\s]+\s*([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+            r"^([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)?)$",
+            r"(?:Имя|ФИО|Ф\.И\.О\.?|Name|Full\s*Name)[:\s]+([А-ЯЁA-Z][а-яёa-z]+\s+[А-ЯЁA-Z][а-яёa-z]+(?:\s+[А-ЯЁA-Z][а-яёa-z]+)?)",
         ]
         for pat in name_patterns:
-            m = re.search(pat, combined, re.MULTILINE)
-            if m:
+            for m in re.finditer(pat, combined, re.MULTILINE):
                 name = m.group(1).strip()
-                if len(name) > 5 and len(name) < 60:
+                if 6 < len(name) < 60 and self._looks_like_name(name):
                     return name
         return ""
 
@@ -282,7 +301,6 @@ class TemplateAnalysisBackend:
         if not gathered_info or len(gathered_info.strip()) < 50:
             return {}
         result = {}
-        # Detect if gathered_info looks like analysis (has section headers)
         section_map = {
             "самопрезентация": "self_presentation",
             "self.presentation": "self_presentation",
@@ -304,7 +322,14 @@ class TemplateAnalysisBackend:
             lower = line.strip().lower()
             matched = None
             for key, section in section_map.items():
-                if key in lower and (line.startswith("#") or line.startswith("**") or ":" in line):
+                # Match if: the line is short-ish and contains the keyword
+                if key in lower and len(line.strip()) < 80 and (
+                    line.strip().startswith("#") or
+                    line.strip().startswith("**") or
+                    ":" in line or
+                    line.strip().isupper() or
+                    len(line.strip()) < 40
+                ):
                     matched = section
                     break
             if matched:
@@ -312,6 +337,8 @@ class TemplateAnalysisBackend:
                     result[current_section] = "\n".join(buffer).strip()
                 current_section = matched
                 buffer = []
+            elif current_section:
+                buffer.append(line)
             elif current_section:
                 buffer.append(line)
         if current_section and buffer:

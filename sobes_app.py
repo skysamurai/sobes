@@ -70,12 +70,14 @@ QLabel { color: #a6adc8; }
 
 
 class PrepareTab(QWidget):
-    def __init__(self, prep_service: PreparationService, store: SqliteStore):
+    def __init__(self, prep_service: PreparationService, store: SqliteStore,
+                 on_session_created=None):
         super().__init__()
         self.prep = prep_service
         self.store = store
         self._profile = None
         self._scripts: list[dict] = []
+        self._on_session_created = on_session_created
 
         layout = QVBoxLayout(self)
 
@@ -494,6 +496,10 @@ class PrepareTab(QWidget):
 
         self._profile = profile
 
+        # Auto-switch to Session tab
+        if self._on_session_created:
+            self._on_session_created(profile)
+
         QMessageBox.information(
             self, "Готово",
             f"Сессия создана: {profile['id']}\n"
@@ -759,7 +765,8 @@ class MainWindow(QMainWindow):
         self.runner = SessionRunner(self.cfg, self.store, prep_service=self.prep)
 
         self.tabs = QTabWidget()
-        self.prepare_tab = PrepareTab(self.prep, self.store)
+        self.prepare_tab = PrepareTab(self.prep, self.store,
+                                        on_session_created=self._on_session_created)
         self.live_tab = LiveTab(self.runner, self.store, prep_service=self.prep)
         self.reports_tab = ReportsTab(self.store)
 
@@ -775,6 +782,20 @@ class MainWindow(QMainWindow):
 
         # Wire prepare → live: when user switches to Live tab, auto-load session
         self.tabs.currentChanged.connect(self._on_tab_changed)
+
+    def _on_session_created(self, profile):
+        """Called from PrepareTab after session creation — auto-switch to Live tab."""
+        self.tabs.setCurrentIndex(1)
+        self.runner.load_session(profile["id"])
+        self.status_bar.showMessage(f"Session loaded: {profile['id']}")
+        # Load and display analysis
+        analysis = self.prep.get_analysis(profile["id"])
+        if analysis:
+            self.live_tab.display_analysis(analysis)
+        else:
+            analysis = self.prep.run_combined_analysis(profile["id"])
+            if analysis:
+                self.live_tab.display_analysis(analysis)
 
     def _on_tab_changed(self, index):
         if index == 1:  # Live tab
